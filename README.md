@@ -1,12 +1,21 @@
 # pi-resume
 
-A fast, read-only session picker for Pi Coding Agent.
+A **read-only incremental session picker** for [Pi Coding Agent](https://pi.dev), designed to make session browsing responsive even when the native `/resume` list takes a long time.
 
-Status: **v0.1 preview**. Use `/presume`; the native `/resume` stays intact.
+> **v0.1.0 preview.** Core parser/scanner tests have passed locally; real Pi TUI behavior and cross-platform benchmarks are not yet certified. No npm release is claimed.
 
-See [ROADMAP.md](ROADMAP.md) for progress and [docs/architecture.md](docs/architecture.md) for the design.
+## Features
 
-## Development
+- `/presume` opens an independent picker; native `/resume` is unchanged.
+- Streams previews in 24-file asynchronous batches rather than parsing entire session transcripts.
+- Reads complete JSONL lines up to the first user message (with a 2 MiB safety cap), plus at most 32 KiB from EOF to find recent renamed session titles.
+- Tab switches current project / all projects; typing filters by title, ID, cwd or path.
+- Arrow keys and PageUp/PageDown navigate, Enter resumes, Esc closes.
+- Corrupted or disappearing files are skipped; sessions are never modified or deleted.
+
+## Try it
+
+Node.js 22+ and a recent compatible Pi are required.
 
 ```bash
 git clone https://github.com/Asigers/pi-resume.git
@@ -16,10 +25,36 @@ npm run check
 pi --no-extensions -e ./src/index.ts
 ```
 
-Press `/presume` in Pi. Use Tab to switch scope, arrow keys to navigate, Enter to resume, and Esc to close. The picker searches session titles, IDs and paths, **not** full transcript text.
+Inside Pi: `/presume`, or `/presume django` to prefill a search term.
 
-The `@asigers/pi-resume` scoped package name is reserved as a plan; this repository does not claim an npm publication.
+Once you verify compatibility, Pi's Git package installation can be used:
 
-No session deletion or JSONL mutation is implemented. Tested Pi/TUI compatibility and performance figures are release gates, not guaranteed by this preview.
+```bash
+pi install git:github.com/Asigers/pi-resume
+```
 
-MIT licensed. Feedback should include your Pi/Node version, OS, and sanitized measurements; please never upload private session logs.
+The planned npm package name is `@asigers/pi-resume`; **it has not been published**.
+
+## Limits and safety
+
+- No full historical message search yet; only session metadata and the first user message are searchable.
+- Renames far before the last 32KiB of a session may not appear.
+- A first user record exceeding the 2MiB safety bound may show a generic title.
+- A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee.
+- No count of all messages is shown, because prefix-only parsing cannot compute it accurately.
+- All operations are local, with no telemetry, storage index, session modification or network requests.
+- Works in Pi terminal TUI only; Pi Web integration is not claimed.
+
+See [ROADMAP.md](ROADMAP.md), [docs/architecture.md](docs/architecture.md), and the repository's GitHub Issues.
+
+## Test
+
+```bash
+npm install --ignore-scripts
+npm test
+npm run typecheck
+```
+
+CI is configured for Linux, Windows and macOS; passing CI and real terminal smoke tests are prerequisites for stable release. Bug reports should include OS, Node/Pi versions, approximate number/size of sessions and sanitized timing data. Do not upload private conversation JSONL.
+
+MIT License.
