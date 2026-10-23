@@ -59,3 +59,11 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 - 2026-10-23: no session writes, deletions, remote data, persistence or telemetry in MVP.
 - 2026-10-23: no fake message count, no universal speed claim.
 - 2026-10-23: planned scoped npm name: `@asigers/pi-resume`.
+
+## Tracking issues
+
+- [#1 — Pi TUI compatibility and cross-platform CI](https://github.com/Asigers/pi-resume/issues/1) — v0.1 release gate
+- [#2 — Reproducible benchmarks](https://github.com/Asigers/pi-resume/issues/2) — v0.1 release gate
+- [#3 — Metadata cache and cancellation](https://github.com/Asigers/pi-resume/issues/3) — v0.2
+- [#4 — Optional native /resume integration](https://github.com/Asigers/pi-resume/issues/4) — v0.2
+- [#5 — Opt-in SQLite FTS](https://github.com/Asigers/pi-resume/issues/5) — v1.0
