@@ -34,3 +34,11 @@ No JSONL file writes, renames, deletion, telemetry, network requests, or persist
 - Windows path matching uses case-insensitive `win32.resolve()`, while POSIX comparison remains case-sensitive.
 - Search/filter/sort results are cached per data generation and query. Background batches invalidate the cache, but TUI re-rendering alone does not.
 - Work remains: benchmarks, more responsive file system cancellation, TUI smoke tests, handling exceptional timestamps/metadata, and CI verification.
+
+## Hierarchy and current-session UX
+
+- JSONL `parentSession` supplies Pi's native session lineage for `/fork`, `/clone`, or a linked child session. A path-keyed tree places children below their parents, sorts siblings by modified date, and uses `├─`, `└─`, and `│` prefixes.
+- Incomplete incremental results show children with an unavailable parent as an orphan (`↳`). Tree structure recomputes when new batches arrive and attaches them when the parent is available. Search results remain flat as in the upstream selector.
+- Cycle guards keep malformed lineage readable. Windows path lookups normalize case; unlike upstream `realpathSync`, v0.1 does not resolve symlink aliases, which is a follow-up compatibility task.
+- The current session shows a dedicated `CURRENT:` headline and `[CURRENT]` row tag, automatically selected until the user starts navigating. `ctx.sessionManager.getSessionId()` is a fallback when there is no on-disk file path.
+- Subagents without persisted `parentSession` links cannot be safely inferred from names/timestamps; Pi's example subagent uses `--no-session`, so those sessions will not appear as persistent children.

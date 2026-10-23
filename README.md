@@ -11,6 +11,8 @@ A **read-only incremental session picker** for [Pi Coding Agent](https://pi.dev)
 - All scope scans the current project first, progressively discovers others and isolates broken directories.
 - Repeated opens show a warm in-memory snapshot immediately, revalidated in the background via mtime/size; no persistent cache.
 - Reads complete JSONL lines up to the first user message (with a 2 MiB safety cap), plus at most 32 KiB from EOF to find recent renamed session titles.
+- Threaded view matches Pi's parent-child layout: linked forks/sessions appear beneath their parent when search is empty.
+- The active session is shown in a `CURRENT:` header and `[CURRENT]` on its row; the picker initially focuses that row when it becomes available.
 - Tab switches current project / all projects; typing filters by title, ID, cwd or path.
 - Arrow keys and PageUp/PageDown navigate, Enter resumes, Esc closes.
 - Corrupted or disappearing files are skipped; sessions are never modified or deleted.
@@ -40,6 +42,7 @@ The planned npm package name is `@asigers/pi-resume`; **it has not been publishe
 ## Limits and safety
 
 - No full historical message search yet; only session metadata and the first user message are searchable.
+- Tree relationships require the persisted JSONL `parentSession` field. A subagent with no linked or persisted session (such as Pi's example that uses `--no-session`) cannot be reliably attached to a parent. Search results are intentionally flat, like Pi's built-in picker.
 - Renames far before the last 32KiB of a session may not appear.
 - A first user record exceeding the 2MiB safety bound may show a generic title.
 - A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee. Revalidation still performs directory traversal and stat calls.

@@ -6,6 +6,7 @@ import {test} from "node:test";
 import {acceptHeaderLine,previewTitle,tailName} from "../src/core/parse.ts";
 import {clearScanCaches,filterByProject,getWarmSnapshot,listSessionPaths,readPreview,sameProjectPath,scanSessions} from "../src/core/scanner.ts";
 import {findSessions,SessionSearchCache} from "../src/core/search.ts";
+import {buildSessionTree,isActiveSession,treePrefix} from "../src/core/tree.ts";
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -196,4 +197,75 @@ test("unreadable project directory is isolated when permissions are enforced",as
     assert.equal(sawGood,true);
     assert.ok(lastFailed>0,"directory failure must be counted without aborting other folders");
   }finally{await chmod(bad,0o700).catch(()=>{});await rm(root,{recursive:true,force:true});}
+});
+
+test("threaded picker keeps fork children and grandchildren next to their parent",()=>{
+  const s=[
+    {id:"fork",path:"/work/fork.jsonl",title:"Fork",cwd:"/work",modifiedMs:500,size:1,parentSession:"/work/main.jsonl"},
+    {id:"other",path:"/work/other.jsonl",title:"Other",cwd:"/work",modifiedMs:400,size:1},
+    {id:"grand",path:"/work/grand.jsonl",title:"Nested",cwd:"/work",modifiedMs:300,size:1,parentSession:"/work/fork.jsonl"},
+    {id:"main",path:"/work/main.jsonl",title:"Main",cwd:"/work",modifiedMs:200,size:1},
+    {id:"fork2",path:"/work/fork2.jsonl",title:"Another fork",cwd:"/work",modifiedMs:100,size:1,parentSession:"/work/main.jsonl"}
+  ];
+  const tree=buildSessionTree(s,"linux");
+  assert.deepEqual(tree.map(row=>row.session.id),["other","main","fork","grand","fork2"]);
+  assert.deepEqual(tree.map(row=>row.depth),[0,0,1,2,1]);
+  assert.equal(treePrefix(tree[2]!),"├─ ");
+  assert.equal(treePrefix(tree[3]!),"│  └─ ");
+  assert.equal(treePrefix(tree[4]!),"└─ ");
+});
+test("an orphaned child attaches when its parent is loaded asynchronously",()=>{
+  const child={id:"child",path:"/work/child.jsonl",title:"Child",cwd:"/work",modifiedMs:8,size:1,parentSession:"/work/parent.jsonl"};
+  assert.equal(treePrefix(buildSessionTree([child],"linux")[0]!),"↳ ");
+  const parent={id:"parent",path:"/work/parent.jsonl",title:"Parent",cwd:"/work",modifiedMs:7,size:1};
+  const tree=buildSessionTree([child,parent],"linux");
+  assert.deepEqual(tree.map(r=>r.session.id),["parent","child"]);
+  assert.equal(tree[1]!.depth,1);
+});
+test("malformed cyclic and self-referential parent paths remain visible",()=>{
+  const s=[
+    {id:"a",path:"/p/a",title:"A",cwd:"/p",modifiedMs:1,size:1,parentSession:"/p/b"},
+    {id:"b",path:"/p/b",title:"B",cwd:"/p",modifiedMs:2,size:1,parentSession:"/p/a"},
+    {id:"self",path:"/p/c",title:"C",cwd:"/p",modifiedMs:3,size:1,parentSession:"/p/c"}
+  ];
+  const rows=buildSessionTree(s,"linux");
+  assert.equal(rows.length,3);
+  assert.deepEqual(new Set(rows.map(x=>x.session.id)),new Set(["a","b","self"]));
+});
+test("Windows parent linkage and current-session paths ignore filename case",()=>{
+  const s=[
+    {id:"child",path:"C:\\Work\\Child.jsonl",title:"Child",cwd:"C:\\Work",modifiedMs:2,size:1,parentSession:"c:\\work\\PARENT.jsonl"},
+    {id:"parent",path:"C:\\WORK\\parent.jsonl",title:"Parent",cwd:"C:\\Work",modifiedMs:1,size:1}
+  ];
+  const rows=buildSessionTree(s,"win32");
+  assert.deepEqual(rows.map(row=>row.session.id),["parent","child"]);
+  assert.equal(rows[1]!.depth,1);
+  assert.equal(isActiveSession(s[1]!,"c:\\work\\PARENT.JSONL",undefined,"win32"),true);
+  assert.equal(isActiveSession(s[0]!,undefined,"child","win32"),true);
+});
+test("search is flat while default rows are tree-cached",()=>{
+  const cache=new SessionSearchCache();
+  const sessions=[
+    {id:"child",path:"/work/child.jsonl",title:"Find me",cwd:"/work",modifiedMs:2,size:1,parentSession:"/work/parent.jsonl"},
+    {id:"parent",path:"/work/parent.jsonl",title:"Parent",cwd:"/work",modifiedMs:1,size:1}
+  ];
+  cache.setSessions(sessions);
+  const tree=cache.rows("");
+  assert.deepEqual(tree.map(row=>row.session.id),["parent","child"]);
+  assert.strictEqual(cache.rows(""),tree);
+  const filtered=cache.rows("find");
+  assert.deepEqual(filtered.map(row=>row.session.id),["child"]);
+  assert.equal(filtered[0]?.depth,0);
+});
+test("scanner extracts parentSession from JSONL header",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pi-resume-lineage-"));
+  try{
+    const file=join(dir,"child.jsonl"),parent=join(dir,"main.jsonl");
+    await writeFile(file,[
+      JSON.stringify({type:"session",id:"child",cwd:dir,parentSession:parent}),
+      JSON.stringify({type:"message",message:{role:"user",content:"Hello"}})
+    ].join("\n")+"\n");
+    const st=await stat(file);
+    assert.equal((await readPreview(file,st.mtimeMs,st.size))?.parentSession,parent);
+  }finally{await rm(dir,{recursive:true,force:true});}
 });

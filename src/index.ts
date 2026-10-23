@@ -17,6 +17,7 @@ export default function(pi:ExtensionAPI){
       const manager=ctx.sessionManager as typeof ctx.sessionManager&{usesDefaultSessionDir?:()=>boolean};
       const isCustomDir=manager.usesDefaultSessionDir?.()===false;
       const currentSession=ctx.sessionManager.getSessionFile()??undefined;
+      const currentSessionId=ctx.sessionManager.getSessionId();
       let picker:ResumePicker|undefined;
       let selected:string|undefined;
       const started=new Set<Scope>();
@@ -32,7 +33,7 @@ export default function(pi:ExtensionAPI){
       try{
         selected=await ctx.ui.custom<string|undefined>((tui,theme,_kb,done)=>{
           picker=new ResumePicker(theme,{
-            currentSession,initialQuery:args?.trim()||undefined,
+            currentSession,currentSessionId,initialQuery:args?.trim()||undefined,
             requestRender:()=>tui.requestRender(),onScope:runScope,done
           });
           setImmediate(()=>runScope("current"));

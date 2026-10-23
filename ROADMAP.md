@@ -16,6 +16,7 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 - [x] Async 24-file bounded batches and progressive TUI.
 - [x] Prefix JSONL reader + bounded tail for recent renames.
 - [x] Current/All scopes, search, keyboard navigation.
+- [x] Restore tree hierarchy using persisted `parentSession` links and mark/focus the active session.
 - [x] Use `ctx.switchSession()` to resume.
 - [x] Skip broken files; cancel pending work when the picker closes.
 - [x] Unit tests for parser, scanner, search, cancellation.
@@ -41,7 +42,8 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 
 - [ ] Opt-in SQLite full-text index, updated incrementally.
 - [ ] Fast search inside complete conversation histories without blocking picker.
-- [ ] Subagent session hierarchy, preview and project filters.
+- [ ] Group external Subagent histories lacking `parentSession` only when a trustworthy parent linkage is available.
+- [ ] Session preview and project filters.
 - [ ] Windows/macOS/Linux benchmark comparisons with Pi native and alternatives.
 - [ ] Crash recovery, index repair, documentation and versioned compatibility matrix.
 
@@ -63,6 +65,7 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 - 2026-10-23: planned scoped npm name: `@asigers/pi-resume`.
 - 2026-10-23: All discovery changed to async streaming, directory errors isolated, process-lifetime preview and warm snapshot caches added; stat() still validates files on each scan.
 - 2026-10-23: search results memoized until query or session dataset changes; no persistent index.
+- 2026-10-23: restored Pi-style threaded tree and `[CURRENT]` marker using parentSession, active file path and ID fallback.
 
 ## Tracking issues
 
