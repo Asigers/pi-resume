@@ -1,6 +1,6 @@
 import {join} from "node:path";
 import {getAgentDir,type ExtensionAPI} from "@earendil-works/pi-coding-agent";
-import {scanSessions} from "./core/scanner.ts";
+import {getWarmSnapshot,scanSessions} from "./core/scanner.ts";
 import {ResumePicker,type Scope} from "./ui/picker.ts";
 
 export default function(pi:ExtensionAPI){
@@ -23,8 +23,9 @@ export default function(pi:ExtensionAPI){
       const runScope=(scope:Scope)=>{
         if(started.has(scope)||abort.signal.aborted||!currentDir)return;
         started.add(scope);
-        void scanSessions({root,currentDir,scope,cwd:ctx.cwd,customDir:isCustomDir,
-          filterCurrentByCwd:isCustomDir,signal:abort.signal,
+        const options={root,currentDir,scope,cwd:ctx.cwd,customDir:isCustomDir,filterCurrentByCwd:isCustomDir};
+        picker?.seed(scope,getWarmSnapshot(options));
+        void scanSessions({...options,signal:abort.signal,
           onBatch:(batch,progress)=>picker?.update(scope,batch,progress)
         }).catch(err=>picker?.fail(`Scan failed: ${err instanceof Error?err.message:String(err)}`));
       };

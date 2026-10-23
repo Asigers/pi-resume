@@ -1,7 +1,7 @@
 import type {Theme} from "@earendil-works/pi-coding-agent";
 import {getKeybindings,Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
-import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
-import {findSessions} from "../core/search.ts";
+import {sameProjectPath,type SessionPreview,type ScanProgress} from "../core/scanner.ts";
+import {SessionSearchCache} from "../core/search.ts";
 
 export type Scope="current"|"all";
 export interface PickerOptions {
@@ -19,9 +19,12 @@ function age(time:number):string{
 export class ResumePicker implements Component {
   private input=new Input();
   private data:Record<Scope,SessionPreview[]>={current:[],all:[]};
+  private positions:Record<Scope,Map<string,number>>={current:new Map(),all:new Map()};
+  private observed:Record<Scope,Set<string>>={current:new Set(),all:new Set()};
+  private search:Record<Scope,SessionSearchCache>={current:new SessionSearchCache(),all:new SessionSearchCache()};
   private progress:Record<Scope,ScanProgress>={
-    current:{loaded:0,total:0,failed:0,complete:false},
-    all:{loaded:0,total:0,failed:0,complete:false}
+    current:{loaded:0,total:0,failed:0,complete:false,discovering:true},
+    all:{loaded:0,total:0,failed:0,complete:false,discovering:true}
   };
   private scope:Scope="current";
   private selected=0;
@@ -35,17 +38,46 @@ export class ResumePicker implements Component {
   get focused(){return this._focused;}
   set focused(v:boolean){this._focused=v;this.input.focused=v;}
   close(){this.closed=true;}
+  /** Immediately show the prior completed in-process snapshot, then revalidate in background. */
+  seed(scope:Scope,rows:SessionPreview[]):void{
+    if(this.closed||!rows.length||this.data[scope].length)return;
+    this.data[scope]=rows.slice();
+    this.positions[scope]=new Map(rows.map((s,i)=>[s.path,i]));
+    this.search[scope].setSessions(this.data[scope]);
+    if(this.scope===scope)this.reconcile();
+    this.options.requestRender();
+  }
   update(scope:Scope,batch:SessionPreview[],progress:ScanProgress):void{
     if(this.closed)return;
-    const all=this.data[scope];
-    const existing=new Set(all.map(s=>s.path));
-    for(const s of batch)if(!existing.has(s.path)){all.push(s);existing.add(s.path);}
+    let changed=false;
+    const rows=this.data[scope],positions=this.positions[scope],observed=this.observed[scope];
+    for(const row of batch){
+      observed.add(row.path);
+      const index=positions.get(row.path);
+      if(index===undefined){
+        positions.set(row.path,rows.length);rows.push(row);changed=true;
+      }else if(rows[index]!==row){
+        rows[index]=row;changed=true;
+      }
+    }
+    if(progress.complete){
+      // Remove stale snapshot rows that disappeared on disk during revalidation.
+      const valid=rows.filter(s=>observed.has(s.path));
+      if(valid.length!==rows.length){
+        this.data[scope]=valid;
+        this.positions[scope]=new Map(valid.map((s,i)=>[s.path,i]));
+        changed=true;
+      }
+    }
     this.progress[scope]=progress;
-    this.reconcile();
+    if(changed){
+      this.search[scope].setSessions(this.data[scope]);
+      if(this.scope===scope)this.reconcile();
+    }
     this.options.requestRender();
   }
   fail(message:string):void{if(!this.closed){this.error=message;this.options.requestRender();}}
-  private results():SessionPreview[]{return findSessions(this.data[this.scope],this.input.getValue());}
+  private results():SessionPreview[]{return this.search[this.scope].search(this.input.getValue());}
   private reconcile():void{
     const results=this.results();
     if(this.selectedPath){
@@ -69,7 +101,8 @@ export class ResumePicker implements Component {
       for(let i=first;i<Math.min(first+PAGE,sessions.length);i++){
         const s=sessions[i]!;
         const mark=i===this.selected?"› ":"  ";
-        const right=`${s.path===this.options.currentSession?"• ":""}${age(s.modifiedMs)}`;
+        const isCurrent=this.options.currentSession&&sameProjectPath(s.path,this.options.currentSession);
+        const right=`${isCurrent?"• ":""}${age(s.modifiedMs)}`;
         const title=truncateToWidth(s.title,Math.max(4,w-visibleWidth(mark)-visibleWidth(right)-2),"…");
         const left=mark+title;
         const padding=" ".repeat(Math.max(1,w-visibleWidth(left)-visibleWidth(right)));
@@ -79,7 +112,7 @@ export class ResumePicker implements Component {
       lines.push(t.fg("muted",`  ${this.selected+1}/${sessions.length} results`));
     }
     lines.push("");
-    const status=p.complete?`Ready · ${p.loaded} files`:`Loading ${p.loaded}/${p.total||"?"}`;
+    const status=p.complete?`Ready · ${p.loaded} files`:`Scanning ${p.loaded}/${p.total}${p.discovering?"+":""}`;
     lines.push(t.fg(this.error?"error":"muted",truncateToWidth(this.error||`${status}${p.failed?` · ${p.failed} skipped`:""}`,w)));
     lines.push(t.fg("muted",truncateToWidth("↑↓ select · Enter resume · Tab scope · Esc close · type to search",w)));
     return lines;
@@ -94,9 +127,9 @@ export class ResumePicker implements Component {
     }
     const list=this.results();
     if(k.matches(data,"tui.select.up"))this.selected=Math.max(0,this.selected-1);
-    else if(k.matches(data,"tui.select.down"))this.selected=Math.min(list.length-1,this.selected+1);
+    else if(k.matches(data,"tui.select.down"))this.selected=Math.max(0,Math.min(list.length-1,this.selected+1));
     else if(k.matches(data,"tui.select.pageUp"))this.selected=Math.max(0,this.selected-PAGE);
-    else if(k.matches(data,"tui.select.pageDown"))this.selected=Math.min(list.length-1,this.selected+PAGE);
+    else if(k.matches(data,"tui.select.pageDown"))this.selected=Math.max(0,Math.min(list.length-1,this.selected+PAGE));
     else if(k.matches(data,"tui.select.confirm")){
       const chosen=list[this.selected];
       if(chosen){this.close();this.options.done(chosen.path);}

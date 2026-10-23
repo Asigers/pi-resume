@@ -8,6 +8,8 @@ A **read-only incremental session picker** for [Pi Coding Agent](https://pi.dev)
 
 - `/presume` opens an independent picker; native `/resume` is unchanged.
 - Streams previews in 24-file asynchronous batches rather than parsing entire session transcripts.
+- All scope scans the current project first, progressively discovers others and isolates broken directories.
+- Repeated opens show a warm in-memory snapshot immediately, revalidated in the background via mtime/size; no persistent cache.
 - Reads complete JSONL lines up to the first user message (with a 2 MiB safety cap), plus at most 32 KiB from EOF to find recent renamed session titles.
 - Tab switches current project / all projects; typing filters by title, ID, cwd or path.
 - Arrow keys and PageUp/PageDown navigate, Enter resumes, Esc closes.
@@ -40,7 +42,7 @@ The planned npm package name is `@asigers/pi-resume`; **it has not been publishe
 - No full historical message search yet; only session metadata and the first user message are searchable.
 - Renames far before the last 32KiB of a session may not appear.
 - A first user record exceeding the 2MiB safety bound may show a generic title.
-- A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee.
+- A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee. Revalidation still performs directory traversal and stat calls.
 - No count of all messages is shown, because prefix-only parsing cannot compute it accurately.
 - All operations are local, with no telemetry, storage index, session modification or network requests.
 - Works in Pi terminal TUI only; Pi Web integration is not claimed.

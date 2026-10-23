@@ -27,8 +27,10 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 
 ## v0.2 — Reliable Resume
 
-- [ ] In-process metadata cache with mtime/size invalidation.
-- [ ] Timed background scans, robust cancellation, UI responsiveness metrics.
+- [x] In-process metadata cache with mtime/size invalidation and immediate warm snapshots.
+- [x] Streaming project discovery (without waiting for all project directories) and error isolation.
+- [x] Windows case-insensitive project path matching and search-result memoization.
+- [ ] Timed background scans, advanced cancellation, UI responsiveness metrics.
 - [ ] Handle selection stability, terminal resizing and custom session directories.
 - [ ] `/presume stats` and diagnostic errors.
 - [ ] Recent-history, named and pinned filters.
@@ -59,6 +61,8 @@ Updated: 2026-10-23. This file is the canonical plan; linked GitHub issues carry
 - 2026-10-23: no session writes, deletions, remote data, persistence or telemetry in MVP.
 - 2026-10-23: no fake message count, no universal speed claim.
 - 2026-10-23: planned scoped npm name: `@asigers/pi-resume`.
+- 2026-10-23: All discovery changed to async streaming, directory errors isolated, process-lifetime preview and warm snapshot caches added; stat() still validates files on each scan.
+- 2026-10-23: search results memoized until query or session dataset changes; no persistent index.
 
 ## Tracking issues
 
