@@ -1,5 +1,5 @@
-import {getKeybindings,type Theme} from "@earendil-works/pi-coding-agent";
-import {Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
+import type {Theme} from "@earendil-works/pi-coding-agent";
+import {getKeybindings,Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
 import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
 import {findSessions} from "../core/search.ts";
 
