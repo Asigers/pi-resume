@@ -7,6 +7,7 @@ import {acceptHeaderLine,previewTitle,tailName} from "../src/core/parse.ts";
 import {clearScanCaches,filterByProject,getWarmSnapshot,listSessionPaths,readPreview,sameProjectPath,scanSessions} from "../src/core/scanner.ts";
 import {findSessions,SessionSearchCache} from "../src/core/search.ts";
 import {buildSessionTree,isActiveSession,treePrefix} from "../src/core/tree.ts";
+import {ArchiveStore,archivePathKey,filterArchiveSessions} from "../src/core/archive.ts";
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -268,4 +269,72 @@ test("scanner extracts parentSession from JSONL header",async()=>{
     const st=await stat(file);
     assert.equal((await readPreview(file,st.mtimeMs,st.size))?.parentSession,parent);
   }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+
+test("archive: persists path-only metadata without touching transcript",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-archive-"));
+  try{
+    const session=join(root,"project","one.jsonl");
+    await mkdir(join(root,"project"));
+    await writeFile(session,fixture("one",root,"unchanged"));
+    const fs=await import("node:fs/promises");
+    const before=await fs.readFile(session);
+    const index=join(root,"agent","pi-resume","archive.json");
+    const store=new ArchiveStore(index);
+    await store.load();
+    assert.equal(store.isArchived(session),false);
+    await store.setArchived(session,true);
+    assert.equal(store.isArchived(session),true);
+    const reopened=new ArchiveStore(index);
+    await reopened.load();
+    assert.equal(reopened.isArchived(session),true);
+    assert.deepEqual(await fs.readFile(session),before);
+    await reopened.setArchived(session,false);
+    await store.load();
+    assert.equal(store.isArchived(session),false);
+    assert.deepEqual(await fs.readFile(session),before);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("archive: preserves prior sequential updates from other instances",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-archive-"));
+  try{
+    const path=join(root,"archive.json");
+    const a=new ArchiveStore(path),b=new ArchiveStore(path);
+    await Promise.all([a.load(),b.load()]);
+    await a.setArchived(join(root,"a.jsonl"),true);
+    await b.setArchived(join(root,"b.jsonl"),true);
+    const latest=new ArchiveStore(path);
+    await latest.load();
+    assert.equal(latest.isArchived(join(root,"a.jsonl")),true);
+    assert.equal(latest.isArchived(join(root,"b.jsonl")),true);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("archive: damaged or unknown versions are never overwritten",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-archive-"));
+  try{
+    const path=join(root,"archive.json");
+    await writeFile(path,'{"version":2,"paths":["important"]}');
+    const store=new ArchiveStore(path);
+    await assert.rejects(store.load(),/Unsupported or damaged/);
+    await assert.rejects(store.setArchived(join(root,"any.jsonl"),true),/Unsupported or damaged/);
+    assert.equal(await (await import("node:fs/promises")).readFile(path,"utf8"),
+      '{"version":2,"paths":["important"]}');
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("archive: list partition retains tree lineage and Windows case handling",()=>{
+  const parent={path:"/work/parent.jsonl",id:"parent",title:"Parent",cwd:"/work",modifiedMs:1,size:1};
+  const child={path:"/work/child.jsonl",id:"child",title:"Child",cwd:"/work",modifiedMs:2,size:1,parentSession:parent.path};
+  const other={path:"/work/other.jsonl",id:"other",title:"Other",cwd:"/work",modifiedMs:3,size:1};
+  const archived=new Set([archivePathKey(other.path)]);
+  const check=(path:string)=>archived.has(archivePathKey(path));
+  const active=filterArchiveSessions([child,parent,other],check,false);
+  const stored=filterArchiveSessions([child,parent,other],check,true);
+  assert.deepEqual(buildSessionTree(active,"linux").map(x=>x.session.id),["parent","child"]);
+  assert.deepEqual(stored.map(x=>x.id),["other"]);
+  assert.equal(archivePathKey("C:\\Work\\A.jsonl","win32"),
+    archivePathKey("c:\\work\\a.JSONL","win32"));
 });
