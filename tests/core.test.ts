@@ -432,7 +432,7 @@ test("picker shortcuts: extended Kitty/CSI-u keyboard sequences work",()=>{
     assert.equal(isArchiveShortcut("\x1b[97;5u"),true);
     assert.equal(isArchiveViewShortcut("\x1b[114;5u"),true);
     assert.equal(isTrashShortcut("\x1b[97;5u"),false);
-    assert.equal(isTrashShortcut("\x04"),false);
+    assert.equal(isTrashShortcut("\x04"),true); // Legacy byte remains accepted as fallback.
   }finally{setKittyProtocolActive(false);}
 });
 
