@@ -406,6 +406,6 @@ test("trash: non-session extensions cannot be targeted",async()=>{
     const st=await stat(path);
     await assert.rejects(moveSessionToTrash({path,size:st.size,modifiedMs:st.mtimeMs},
       async()=>{throw new Error("should not call trash");}),/non-session/);
-    assert.equal((await import("node:fs/promises")).readFile(path,"utf8") instanceof Promise,true);
+    assert.equal(await (await import("node:fs/promises")).readFile(path,"utf8"),"untouched");
   }finally{await rm(root,{recursive:true,force:true});}
 });
