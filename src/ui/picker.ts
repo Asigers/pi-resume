@@ -4,6 +4,7 @@ import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
 import {archivePathKey,filterArchiveSessions} from "../core/archive.ts";
 import {SessionSearchCache} from "../core/search.ts";
 import {isActiveSession,treePrefix,type SessionRow} from "../core/tree.ts";
+import {isArchiveShortcut,isArchiveViewShortcut,isTrashShortcut} from "./shortcuts.ts";
 
 export type Scope="current"|"all";
 export interface PickerOptions {
@@ -228,7 +229,7 @@ export class ResumePicker implements Component {
       return;
     }
     if(k.matches(data,"tui.select.cancel")){this.close();this.options.done();return;}
-    if(data==="\x04"){
+    if(isTrashShortcut(data)){
       const row=this.results()[this.selected];
       if(!row)return;
       const s=row.session;
@@ -242,7 +243,7 @@ export class ResumePicker implements Component {
       this.options.requestRender();return;
     }
     // Ctrl+R changes the view; Ctrl+A archives/restores the highlighted session.
-    if(data==="\x12"){
+    if(isArchiveViewShortcut(data)){
       if(this.busy)return;
       this.archived=!this.archived;
       this.refreshVisible("current");
@@ -250,7 +251,7 @@ export class ResumePicker implements Component {
       this.selected=0;this.selectedPath=undefined;this.selectionTouched=false;this.reconcile();
       this.options.requestRender();return;
     }
-    if(data==="\x01"){
+    if(isArchiveShortcut(data)){
       const chosen=this.results()[this.selected];
       if(chosen&&!this.busy)void this.changeArchive(chosen.session.path,!this.archived);
       return;
