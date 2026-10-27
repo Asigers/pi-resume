@@ -1,7 +1,7 @@
 {
   "name": "@asigers/pi-resume",
-  "version": "0.2.0",
-  "description": "Fast session picker with optional local archiving for Pi Coding Agent",
+  "version": "0.3.0",
+  "description": "Fast Pi session picker with archiving and safe deletion to system Trash",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -39,5 +39,8 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "dependencies": {
+    "trash": "^10.1.1"
   }
 }

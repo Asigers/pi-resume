@@ -1,12 +1,14 @@
 import {join} from "node:path";
 import {getAgentDir,type ExtensionAPI} from "@earendil-works/pi-coding-agent";
-import {getWarmSnapshot,scanSessions} from "./core/scanner.ts";
+import {clearScanCaches,getWarmSnapshot,scanSessions} from "./core/scanner.ts";
+import {moveSessionToTrash} from "./core/trash.ts";
+import type {SessionPreview} from "./core/scanner.ts";
 import {ArchiveStore} from "./core/archive.ts";
 import {ResumePicker,type Scope} from "./ui/picker.ts";
 
 export default function(pi:ExtensionAPI){
   pi.registerCommand("presume",{
-    description:"Fast session picker with local archive (leaves /resume unchanged)",
+    description:"Fast session picker with archive and safe Trash deletion (leaves /resume unchanged)",
     handler:async(args,ctx)=>{
       if(ctx.mode!=="tui"){
         if(ctx.hasUI)ctx.ui.notify("/presume requires Pi terminal UI","warning");
@@ -28,6 +30,18 @@ export default function(pi:ExtensionAPI){
       let picker:ResumePicker|undefined;
       let selected:string|undefined;
       const started=new Set<Scope>();
+      const onDelete=async(session:SessionPreview):Promise<{warning?:string}>=>{
+        // The selected path comes from the scanner; the trash routine revalidates it.
+        await moveSessionToTrash(session);
+        clearScanCaches();
+        try{
+          await archive.setArchived(session.path,false);
+          return {};
+        }catch(err){
+          return {warning:"Moved to Trash, but could not clear archive metadata: "+
+            (err instanceof Error?err.message:String(err))};
+        }
+      };
       const runScope=(scope:Scope)=>{
         if(started.has(scope)||abort.signal.aborted||!currentDir)return;
         started.add(scope);
@@ -43,7 +57,8 @@ export default function(pi:ExtensionAPI){
             currentSession,currentSessionId,initialQuery:args?.trim()||undefined,
             requestRender:()=>tui.requestRender(),onScope:runScope,
             isArchived:path=>archive.isArchived(path),
-            onArchive:(path,archived)=>archive.setArchived(path,archived),done
+            onArchive:(path,archived)=>archive.setArchived(path,archived),
+            onDelete,done
           });
           setImmediate(()=>runScope("current"));
           return picker;

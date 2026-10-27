@@ -1,7 +1,7 @@
 import type {Theme} from "@earendil-works/pi-coding-agent";
 import {getKeybindings,Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
 import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
-import {filterArchiveSessions} from "../core/archive.ts";
+import {archivePathKey,filterArchiveSessions} from "../core/archive.ts";
 import {SessionSearchCache} from "../core/search.ts";
 import {isActiveSession,treePrefix,type SessionRow} from "../core/tree.ts";
 
@@ -10,6 +10,7 @@ export interface PickerOptions {
   currentSession?:string; currentSessionId?:string; initialQuery?:string; requestRender():void;
   onScope(scope:Scope):void; done(sessionPath?:string):void;
   isArchived(path:string):boolean; onArchive(path:string,archived:boolean):Promise<void>;
+  onDelete(session:SessionPreview):Promise<{warning?:string}>;
 }
 const PAGE=12;
 function age(time:number):string{
@@ -32,6 +33,9 @@ export class ResumePicker implements Component {
   private scope:Scope="current";
   private archived=false;
   private busy=false;
+  private confirmingDelete:SessionPreview|undefined;
+  private deletedPaths=new Set<string>();
+  private notice:string|undefined;
   private selected=0;
   private selectedPath:string|undefined;
   private active:Record<Scope,SessionPreview|undefined>={current:undefined,all:undefined};
@@ -45,6 +49,41 @@ export class ResumePicker implements Component {
   get focused(){return this._focused;}
   set focused(v:boolean){this._focused=v;this.input.focused=v;}
   close(){this.closed=true;}
+  private removeDeletedSession(path:string):void{
+    const key=archivePathKey(path);
+    this.deletedPaths.add(key);
+    this.confirmingDelete=undefined;
+    for(const scope of ["current","all"] as const){
+      const rows=this.data[scope].filter(s=>archivePathKey(s.path)!==key);
+      this.data[scope]=rows;
+      this.positions[scope]=new Map(rows.map((s,i)=>[s.path,i]));
+      this.observed[scope].delete(path);
+      this.active[scope]=rows.find(r=>isActiveSession(
+        r,this.options.currentSession,this.options.currentSessionId
+      ));
+      this.refreshVisible(scope);
+    }
+    this.selectedPath=undefined;
+    this.selectionTouched=true;
+    this.reconcile();
+  }
+  private async trashSession(session:SessionPreview):Promise<void>{
+    if(this.busy||this.closed)return;
+    this.busy=true;this.error=undefined;this.notice=undefined;
+    this.options.requestRender();
+    try{
+      const result=await this.options.onDelete(session);
+      if(this.closed)return;
+      this.removeDeletedSession(session.path);
+      this.notice=result.warning||"Moved session to system Trash. Other sessions were kept.";
+    }catch(err){
+      if(!this.closed)this.error="Could not move to Trash: "+
+        (err instanceof Error?err.message:String(err));
+    }finally{
+      this.busy=false;
+      if(!this.closed)this.options.requestRender();
+    }
+  }
   private refreshVisible(scope:Scope):void{
     this.search[scope].setSessions(filterArchiveSessions(
       this.data[scope],this.options.isArchived,this.archived
@@ -74,8 +113,8 @@ export class ResumePicker implements Component {
   /** Immediately show the prior completed in-process snapshot, then revalidate in background. */
   seed(scope:Scope,rows:SessionPreview[]):void{
     if(this.closed||!rows.length||this.data[scope].length)return;
-    this.data[scope]=rows.slice();
-    this.positions[scope]=new Map(rows.map((s,i)=>[s.path,i]));
+    this.data[scope]=rows.filter(s=>!this.deletedPaths.has(archivePathKey(s.path)));
+    this.positions[scope]=new Map(this.data[scope].map((s,i)=>[s.path,i]));
     this.refreshVisible(scope);
     this.active[scope]=rows.find(r=>isActiveSession(r,this.options.currentSession,this.options.currentSessionId));
     if(this.scope===scope)this.reconcile();
@@ -86,6 +125,7 @@ export class ResumePicker implements Component {
     let changed=false;
     const rows=this.data[scope],positions=this.positions[scope],observed=this.observed[scope];
     for(const row of batch){
+      if(this.deletedPaths.has(archivePathKey(row.path)))continue;
       if(isActiveSession(row,this.options.currentSession,this.options.currentSessionId))this.active[scope]=row;
       observed.add(row.path);
       const index=positions.get(row.path);
@@ -97,7 +137,7 @@ export class ResumePicker implements Component {
     }
     if(progress.complete){
       // Remove stale snapshot rows that disappeared on disk during revalidation.
-      const valid=rows.filter(s=>observed.has(s.path));
+      const valid=rows.filter(s=>observed.has(s.path)&&!this.deletedPaths.has(archivePathKey(s.path)));
       if(valid.length!==rows.length){
         this.data[scope]=valid;
         this.positions[scope]=new Map(valid.map((s,i)=>[s.path,i]));
@@ -159,13 +199,48 @@ export class ResumePicker implements Component {
     }
     lines.push("");
     const status=p.complete?`Ready · ${p.loaded} files`:`Scanning ${p.loaded}/${p.total}${p.discovering?"+":""}`;
-    lines.push(t.fg(this.error?"error":"muted",truncateToWidth(this.error||`${this.busy?"Updating archive…":status}${p.failed?` · ${p.failed} skipped`:""}`,w)));
-    lines.push(t.fg("muted",truncateToWidth(this.archived?"↑↓ select · Enter/Ctrl+A restore · Ctrl+R active · Tab scope · Esc close":"↑↓ select · Enter resume · Ctrl+A archive · Ctrl+R archived · Tab scope · Esc close",w)));
+    lines.push(t.fg(this.error?"error":"muted",truncateToWidth(this.error||this.notice||`${this.busy?"Working…":status}${p.failed?` · ${p.failed} skipped`:""}`,w)));
+    if(this.confirmingDelete){
+      lines.push(t.fg("error",truncateToWidth("Move this session to system Trash?",w)));
+      lines.push(t.fg("accent",truncateToWidth("  "+this.confirmingDelete.title,w,"…")));
+      lines.push(t.fg("muted",truncateToWidth("  "+this.confirmingDelete.path,w,"…")));
+      lines.push(t.fg("muted",truncateToWidth("Y confirm · N/Esc cancel · child sessions are preserved",w)));
+    }else{
+      lines.push(t.fg("muted",truncateToWidth(this.archived?
+        "↑↓ select · Enter/Ctrl+A restore · Ctrl+D trash · Ctrl+R active · Tab scope · Esc close":
+        "↑↓ select · Enter resume · Ctrl+A archive · Ctrl+D trash · Ctrl+R archived · Tab scope · Esc close",w)));
+    }
     return lines;
   }
   handleInput(data:string):void{
     const k=getKeybindings();
+    if(this.busy)return;
+    if(this.confirmingDelete){
+      if(data==="y"||data==="Y"){
+        const target=this.confirmingDelete;
+        this.confirmingDelete=undefined;
+        void this.trashSession(target);
+      }else if(data==="n"||data==="N"||k.matches(data,"tui.select.cancel")){
+        this.confirmingDelete=undefined;
+        this.error=undefined;
+        this.options.requestRender();
+      }
+      return;
+    }
     if(k.matches(data,"tui.select.cancel")){this.close();this.options.done();return;}
+    if(data==="\x04"){
+      const row=this.results()[this.selected];
+      if(!row)return;
+      const s=row.session;
+      this.notice=undefined;
+      if(isActiveSession(s,this.options.currentSession,this.options.currentSessionId)){
+        this.error="Cannot delete the current session. Switch to another session first.";
+      }else{
+        this.error=undefined;
+        this.confirmingDelete=s;
+      }
+      this.options.requestRender();return;
+    }
     // Ctrl+R changes the view; Ctrl+A archives/restores the highlighted session.
     if(data==="\x12"){
       if(this.busy)return;

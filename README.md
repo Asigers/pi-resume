@@ -15,8 +15,9 @@ A **fast incremental session picker with optional local archiving** for [Pi Codi
 - The active session is shown in a `CURRENT:` header and `[CURRENT]` on its row; the picker initially focuses that row when it becomes available.
 - Tab switches current project / all projects; typing filters by title, ID, cwd or path.
 - Arrow keys and PageUp/PageDown navigate, Enter resumes, Esc closes.
-- Corrupted or disappearing files are skipped; transcript JSONL files are never modified or deleted.
+- Corrupted or disappearing files are skipped; transcripts remain unchanged except when you explicitly move one to system Trash.
 - Ctrl+A archives/restores selected sessions; Ctrl+R toggles the Archived view. Archived sessions are hidden only in `/presume`.
+- Ctrl+D moves a selected historical session to the OS Trash after confirmation; child sessions are retained.
 
 ## Try it
 
@@ -51,6 +52,27 @@ If the index has an invalid version or damaged JSON, the picker reports an error
 than overwriting it. Removed session files may leave stale entries in the archive index;
 these do not interfere with scanning.
 
+## Move a session to Trash
+
+Highlight a session in either Active or Archived view and press **Ctrl+D**.
+The picker displays its title and file path. Press **Y** to confirm or **N/Esc**
+to cancel. An active/current session is protected: switch away before trashing it.
+
+Only that session's JSONL is moved to your **operating system's Trash/Recycle Bin**.
+Children and other linked sessions are not moved. If the parent is trashed,
+children can remain visible as orphaned sessions until the parent is restored.
+Restore a deleted session using your OS Trash/Recycle Bin; this is different
+from Ctrl+A, which only changes archive metadata.
+
+The extension verifies that the file is a regular `.jsonl` and that its size
+and modification time have not changed since the picker read it. A modified
+or missing file causes a safe failure; reopen `/presume` to refresh.
+If system Trash is unavailable, **the extension does not permanently delete**.
+After a successful move, the session disappears from both views and any matching
+archive metadata is cleared. An archive index write error is displayed as
+a warning, without misreporting the successful Trash move.
+
+
 
 
 Once you verify compatibility, Pi's Git package installation can be used:
@@ -69,7 +91,7 @@ The planned npm package name is `@asigers/pi-resume`; **it has not been publishe
 - A first user record exceeding the 2MiB safety bound may show a generic title.
 - A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee. Revalidation still performs directory traversal and stat calls.
 - No count of all messages is shown, because prefix-only parsing cannot compute it accurately.
-- All operations are local, with no telemetry, session-file modification or network requests; archiving persists a separate path-only JSON index.
+- All operations are local, with no telemetry or network requests; archiving persists a separate path-only JSON index, and explicit deletion moves the selected JSONL into system Trash.
 - Works in Pi terminal TUI only; Pi Web integration is not claimed.
 
 See [ROADMAP.md](ROADMAP.md), [docs/architecture.md](docs/architecture.md), and the repository's GitHub Issues.

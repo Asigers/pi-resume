@@ -8,6 +8,7 @@ import {clearScanCaches,filterByProject,getWarmSnapshot,listSessionPaths,readPre
 import {findSessions,SessionSearchCache} from "../src/core/search.ts";
 import {buildSessionTree,isActiveSession,treePrefix} from "../src/core/tree.ts";
 import {ArchiveStore,archivePathKey,filterArchiveSessions} from "../src/core/archive.ts";
+import {moveSessionToTrash} from "../src/core/trash.ts";
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -337,4 +338,74 @@ test("archive: list partition retains tree lineage and Windows case handling",()
   assert.deepEqual(stored.map(x=>x.id),["other"]);
   assert.equal(archivePathKey("C:\\Work\\A.jsonl","win32"),
     archivePathKey("c:\\work\\a.JSONL","win32"));
+});
+
+
+test("trash: moves only the selected session; siblings and children stay intact",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-trash-"));
+  try{
+    const dir=join(root,"sessions"),bin=join(root,"bin");
+    await mkdir(dir);await mkdir(bin);
+    const parent=join(dir,"parent.jsonl");
+    const child=join(dir,"child.jsonl");
+    const other=join(dir,"other.jsonl");
+    await writeFile(parent,fixture("parent",dir,"parent"));
+    await writeFile(child,fixture("child",dir,"child"));
+    await writeFile(other,fixture("other",dir,"other"));
+    const st=await stat(parent);
+    const destination=join(bin,"parent.jsonl");
+    const fs=await import("node:fs/promises");
+    await moveSessionToTrash({path:parent,size:st.size,modifiedMs:st.mtimeMs},
+      async(path)=>{assert.equal(path,parent);await fs.rename(path,destination);});
+    await assert.rejects(fs.lstat(parent),{code:"ENOENT"});
+    assert.equal((await stat(child)).isFile(),true);
+    assert.equal((await stat(other)).isFile(),true);
+    assert.equal((await stat(destination)).isFile(),true);
+    await fs.rename(destination,parent); // Restore demonstration.
+    assert.equal((await stat(parent)).isFile(),true);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("trash: modified or replaced sessions are never sent to trash",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-trash-"));
+  try{
+    const path=join(root,"one.jsonl");
+    await writeFile(path,fixture("one",root,"hi"));
+    const st=await stat(path);
+    await appendFile(path,"\nupdated\n");
+    let called=0;
+    await assert.rejects(moveSessionToTrash({path,size:st.size,modifiedMs:st.mtimeMs},
+      async()=>{called++;}),/Session changed/);
+    assert.equal(called,0);
+    assert.equal((await stat(path)).isFile(),true);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("trash: missing files and no-op provider never count as successful deletion",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-trash-"));
+  try{
+    const path=join(root,"one.jsonl");
+    await writeFile(path,fixture("one",root,"hi"));
+    const st=await stat(path);
+    let called=0;
+    await assert.rejects(moveSessionToTrash({path,size:st.size,modifiedMs:st.mtimeMs},
+      async()=>{called++;}),/still present/);
+    assert.equal(called,1);
+    await rm(path);
+    await assert.rejects(moveSessionToTrash({path,size:st.size,modifiedMs:st.mtimeMs},
+      async()=>{called++;}),{code:"ENOENT"});
+    assert.equal(called,1);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test("trash: non-session extensions cannot be targeted",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"pi-resume-trash-"));
+  try{
+    const path=join(root,"notes.txt");
+    await writeFile(path,"untouched");
+    const st=await stat(path);
+    await assert.rejects(moveSessionToTrash({path,size:st.size,modifiedMs:st.mtimeMs},
+      async()=>{throw new Error("should not call trash");}),/non-session/);
+    assert.equal(await (await import("node:fs/promises")).readFile(path,"utf8"),"untouched");
+  }finally{await rm(root,{recursive:true,force:true});}
 });
