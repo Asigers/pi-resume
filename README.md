@@ -1,8 +1,8 @@
 # pi-resume
 
-A **read-only incremental session picker** for [Pi Coding Agent](https://pi.dev), designed to make session browsing responsive even when the native `/resume` list takes a long time.
+A **fast incremental session picker with optional local archiving** for [Pi Coding Agent](https://pi.dev), designed to make session browsing responsive even when the native `/resume` list takes a long time.
 
-> **v0.1.0 preview.** Core parser/scanner tests have passed locally; real Pi TUI behavior and cross-platform benchmarks are not yet certified. No npm release is claimed.
+> **Preview.** Core parser/scanner tests have passed locally; real Pi TUI behavior and cross-platform benchmarks are not yet certified. No npm release is claimed.
 
 ## Features
 
@@ -15,7 +15,8 @@ A **read-only incremental session picker** for [Pi Coding Agent](https://pi.dev)
 - The active session is shown in a `CURRENT:` header and `[CURRENT]` on its row; the picker initially focuses that row when it becomes available.
 - Tab switches current project / all projects; typing filters by title, ID, cwd or path.
 - Arrow keys and PageUp/PageDown navigate, Enter resumes, Esc closes.
-- Corrupted or disappearing files are skipped; sessions are never modified or deleted.
+- Corrupted or disappearing files are skipped; transcript JSONL files are never modified or deleted.
+- Ctrl+A archives/restores selected sessions; Ctrl+R toggles the Archived view. Archived sessions are hidden only in `/presume`.
 
 ## Try it
 
@@ -30,6 +31,27 @@ pi --no-extensions -e ./src/index.ts
 ```
 
 Inside Pi: `/presume`, or `/presume django` to prefill a search term.
+
+## Local archive
+
+Inside `/presume`:
+
+- **Ctrl+A** archives the selected session in Active view, or restores it in Archived view.
+- **Ctrl+R** toggles Active/Archived. **Tab** switches Current/All project scope.
+- **Enter** resumes in Active view or restores in Archived view (without opening that session).
+- Text search filters sessions within the selected view.
+
+The extension stores only normalized local session paths at
+`~/.pi/agent/pi-resume/archive.json` (relative to the configured Pi agent directory).
+It uses an atomic index replacement and **never moves or rewrites session JSONL**.
+Consequently, **Pi's native `/resume` still lists archived sessions**; archiving hides them
+only in this extension.
+
+If the index has an invalid version or damaged JSON, the picker reports an error rather
+than overwriting it. Removed session files may leave stale entries in the archive index;
+these do not interfere with scanning.
+
+
 
 Once you verify compatibility, Pi's Git package installation can be used:
 
@@ -47,7 +69,7 @@ The planned npm package name is `@asigers/pi-resume`; **it has not been publishe
 - A first user record exceeding the 2MiB safety bound may show a generic title.
 - A huge filesystem directory or slow network disk can still cause delays; no universal millisecond guarantee. Revalidation still performs directory traversal and stat calls.
 - No count of all messages is shown, because prefix-only parsing cannot compute it accurately.
-- All operations are local, with no telemetry, storage index, session modification or network requests.
+- All operations are local, with no telemetry, session-file modification or network requests; archiving persists a separate path-only JSON index.
 - Works in Pi terminal TUI only; Pi Web integration is not claimed.
 
 See [ROADMAP.md](ROADMAP.md), [docs/architecture.md](docs/architecture.md), and the repository's GitHub Issues.

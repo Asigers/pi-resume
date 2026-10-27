@@ -1,7 +1,7 @@
 {
   "name": "@asigers/pi-resume",
-  "version": "0.1.0",
-  "description": "Fast read-only session picker for Pi Coding Agent",
+  "version": "0.2.0",
+  "description": "Fast session picker with optional local archiving for Pi Coding Agent",
   "type": "module",
   "license": "MIT",
   "repository": {
