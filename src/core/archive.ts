@@ -19,7 +19,8 @@ export function filterArchiveSessions<T extends {path:string}>(
 
 export class ArchiveStore {
   private entries=new Set<string>();
-  constructor(readonly file:string){}
+  readonly file:string;
+  constructor(file:string){this.file=file;}
 
   private async readIndex():Promise<Set<string>>{
     let raw:unknown;
