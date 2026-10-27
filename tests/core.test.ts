@@ -9,6 +9,8 @@ import {findSessions,SessionSearchCache} from "../src/core/search.ts";
 import {buildSessionTree,isActiveSession,treePrefix} from "../src/core/tree.ts";
 import {ArchiveStore,archivePathKey,filterArchiveSessions} from "../src/core/archive.ts";
 import {moveSessionToTrash} from "../src/core/trash.ts";
+import {setKittyProtocolActive} from "@earendil-works/pi-tui";
+import {isArchiveShortcut,isArchiveViewShortcut,isTrashShortcut} from "../src/ui/shortcuts.ts";
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -408,4 +410,37 @@ test("trash: non-session extensions cannot be targeted",async()=>{
       async()=>{throw new Error("should not call trash");}),/non-session/);
     assert.equal(await (await import("node:fs/promises")).readFile(path,"utf8"),"untouched");
   }finally{await rm(root,{recursive:true,force:true});}
+});
+
+
+test("picker shortcuts: legacy Ctrl+A/D/R are recognized",()=>{
+  setKittyProtocolActive(false);
+  try{
+    assert.equal(isArchiveShortcut("\x01"),true);
+    assert.equal(isTrashShortcut("\x04"),true);
+    assert.equal(isArchiveViewShortcut("\x12"),true);
+    assert.equal(isTrashShortcut("d"),false);
+    assert.equal(isTrashShortcut("\x01"),false);
+  }finally{setKittyProtocolActive(false);}
+});
+
+test("picker shortcuts: extended Kitty/CSI-u keyboard sequences work",()=>{
+  setKittyProtocolActive(true);
+  try{
+    // Kitty uses CSI codepoint;modifier u (Ctrl modifier = 5).
+    assert.equal(isTrashShortcut("\x1b[100;5u"),true);
+    assert.equal(isArchiveShortcut("\x1b[97;5u"),true);
+    assert.equal(isArchiveViewShortcut("\x1b[114;5u"),true);
+    assert.equal(isTrashShortcut("\x1b[97;5u"),false);
+    assert.equal(isTrashShortcut("\x04"),true); // Legacy byte remains accepted as fallback.
+  }finally{setKittyProtocolActive(false);}
+});
+
+test("picker shortcuts: xterm modifyOtherKeys work as well",()=>{
+  setKittyProtocolActive(false);
+  try{
+    assert.equal(isTrashShortcut("\x1b[27;5;100~"),true);
+    assert.equal(isArchiveShortcut("\x1b[27;5;97~"),true);
+    assert.equal(isArchiveViewShortcut("\x1b[27;5;114~"),true);
+  }finally{setKittyProtocolActive(false);}
 });
