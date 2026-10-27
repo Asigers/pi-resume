@@ -1,6 +1,7 @@
 import type {Theme} from "@earendil-works/pi-coding-agent";
 import {getKeybindings,Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
 import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
+import {filterArchiveSessions} from "../core/archive.ts";
 import {SessionSearchCache} from "../core/search.ts";
 import {isActiveSession,treePrefix,type SessionRow} from "../core/tree.ts";
 
@@ -8,6 +9,7 @@ export type Scope="current"|"all";
 export interface PickerOptions {
   currentSession?:string; currentSessionId?:string; initialQuery?:string; requestRender():void;
   onScope(scope:Scope):void; done(sessionPath?:string):void;
+  isArchived(path:string):boolean; onArchive(path:string,archived:boolean):Promise<void>;
 }
 const PAGE=12;
 function age(time:number):string{
@@ -28,6 +30,8 @@ export class ResumePicker implements Component {
     all:{loaded:0,total:0,failed:0,complete:false,discovering:true}
   };
   private scope:Scope="current";
+  private archived=false;
+  private busy=false;
   private selected=0;
   private selectedPath:string|undefined;
   private active:Record<Scope,SessionPreview|undefined>={current:undefined,all:undefined};
@@ -41,12 +45,38 @@ export class ResumePicker implements Component {
   get focused(){return this._focused;}
   set focused(v:boolean){this._focused=v;this.input.focused=v;}
   close(){this.closed=true;}
+  private refreshVisible(scope:Scope):void{
+    this.search[scope].setSessions(filterArchiveSessions(
+      this.data[scope],this.options.isArchived,this.archived
+    ));
+  }
+  private async changeArchive(path:string,archived:boolean):Promise<void>{
+    if(this.busy||this.closed)return;
+    this.busy=true;
+    this.error=undefined;
+    this.options.requestRender();
+    try{
+      await this.options.onArchive(path,archived);
+      if(this.closed)return;
+      this.refreshVisible("current");
+      this.refreshVisible("all");
+      this.selected=0;
+      this.selectedPath=undefined;
+      this.selectionTouched=true;
+      this.reconcile();
+    }catch(err){
+      if(!this.closed)this.error="Archive update failed: "+(err instanceof Error?err.message:String(err));
+    }finally{
+      this.busy=false;
+      if(!this.closed)this.options.requestRender();
+    }
+  }
   /** Immediately show the prior completed in-process snapshot, then revalidate in background. */
   seed(scope:Scope,rows:SessionPreview[]):void{
     if(this.closed||!rows.length||this.data[scope].length)return;
     this.data[scope]=rows.slice();
     this.positions[scope]=new Map(rows.map((s,i)=>[s.path,i]));
-    this.search[scope].setSessions(this.data[scope]);
+    this.refreshVisible(scope);
     this.active[scope]=rows.find(r=>isActiveSession(r,this.options.currentSession,this.options.currentSessionId));
     if(this.scope===scope)this.reconcile();
     this.options.requestRender();
@@ -77,7 +107,7 @@ export class ResumePicker implements Component {
     }
     this.progress[scope]=progress;
     if(changed){
-      this.search[scope].setSessions(this.data[scope]);
+      this.refreshVisible(scope);
       if(this.scope===scope)this.reconcile();
     }
     this.options.requestRender();
@@ -105,11 +135,11 @@ export class ResumePicker implements Component {
     const activeLabel=active?active.title:
       this.options.currentSessionId?(p.complete?"not in this scope":"loading session…"):"unsaved";
     const lines:string[]=[
-      truncateToWidth(t.bold("Pi Resume")+t.fg("muted",` [${this.scope==="current"?"Current":"All"}]`),w),
+      truncateToWidth(t.bold("Pi Resume")+t.fg("muted",` [${this.scope==="current"?"Current":"All"} · ${this.archived?"Archived":"Active"}]`),w),
       t.fg("accent",truncateToWidth(`CURRENT: ${activeLabel}`,w,"…")),
       ...this.input.render(w),""
     ];
-    if(!sessions.length)lines.push(t.fg("muted",p.complete?"  No matching sessions":"  Scanning sessions..."));
+    if(!sessions.length)lines.push(t.fg("muted",p.complete?(this.archived?"  No matching archived sessions":"  No matching sessions"):"  Scanning sessions..."));
     else{
       const first=Math.min(Math.max(0,this.selected-Math.floor(PAGE/2)),Math.max(0,sessions.length-PAGE));
       for(let i=first;i<Math.min(first+PAGE,sessions.length);i++){
@@ -129,13 +159,28 @@ export class ResumePicker implements Component {
     }
     lines.push("");
     const status=p.complete?`Ready · ${p.loaded} files`:`Scanning ${p.loaded}/${p.total}${p.discovering?"+":""}`;
-    lines.push(t.fg(this.error?"error":"muted",truncateToWidth(this.error||`${status}${p.failed?` · ${p.failed} skipped`:""}`,w)));
-    lines.push(t.fg("muted",truncateToWidth("↑↓ select · Enter resume · Tab scope · Esc close · type to search",w)));
+    lines.push(t.fg(this.error?"error":"muted",truncateToWidth(this.error||`${this.busy?"Updating archive…":status}${p.failed?` · ${p.failed} skipped`:""}`,w)));
+    lines.push(t.fg("muted",truncateToWidth(this.archived?"↑↓ select · Enter/Ctrl+A restore · Ctrl+R active · Tab scope · Esc close":"↑↓ select · Enter resume · Ctrl+A archive · Ctrl+R archived · Tab scope · Esc close",w)));
     return lines;
   }
   handleInput(data:string):void{
     const k=getKeybindings();
     if(k.matches(data,"tui.select.cancel")){this.close();this.options.done();return;}
+    // Ctrl+R changes the view; Ctrl+A archives/restores the highlighted session.
+    if(data==="\x12"){
+      if(this.busy)return;
+      this.archived=!this.archived;
+      this.refreshVisible("current");
+      this.refreshVisible("all");
+      this.selected=0;this.selectedPath=undefined;this.selectionTouched=false;this.reconcile();
+      this.options.requestRender();return;
+    }
+    if(data==="\x01"){
+      const chosen=this.results()[this.selected];
+      if(chosen&&!this.busy)void this.changeArchive(chosen.session.path,!this.archived);
+      return;
+    }
+    if(this.busy)return;
     if(k.matches(data,"tui.input.tab")){
       this.scope=this.scope==="current"?"all":"current";
       this.selected=0;this.selectedPath=undefined;this.selectionTouched=false;this.reconcile();
@@ -148,7 +193,10 @@ export class ResumePicker implements Component {
     else if(k.matches(data,"tui.select.pageDown"))this.selected=Math.max(0,Math.min(list.length-1,this.selected+PAGE));
     else if(k.matches(data,"tui.select.confirm")){
       const chosen=list[this.selected];
-      if(chosen){this.close();this.options.done(chosen.session.path);}
+      if(chosen){
+        if(this.archived)void this.changeArchive(chosen.session.path,false);
+        else {this.close();this.options.done(chosen.session.path);}
+      }
       return;
     }else{
       this.input.handleInput(data);
