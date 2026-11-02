@@ -72,9 +72,12 @@ test("reader: session_info split across backward read blocks is parsed",async()=
   try{
     const path=join(dir,"boundary.jsonl");
     const prefix=fixture("boundary",dir,"fallback");
-    const padding="x".repeat(16370);
+    const blockSize=16384;
+    const base=JSON.stringify({type:"message",message:{role:"assistant",content:""}})+"\n";
+    const paddingLength=(blockSize-5-((prefix.length+base.length)%blockSize)+blockSize)%blockSize;
+    const filler=JSON.stringify({type:"message",message:{role:"assistant",content:"x".repeat(paddingLength)}})+"\n";
     const rename=JSON.stringify({type:"session_info",name:"Boundary name"});
-    await writeFile(path,prefix+padding+rename+"\n");
+    await writeFile(path,prefix+filler+rename+"\n");
     const s=await stat(path),p=await readPreview(path,s.mtimeMs,s.size);
     assert.equal(p?.title,"Boundary name");
   }finally{await rm(dir,{recursive:true,force:true});}
