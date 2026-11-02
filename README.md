@@ -10,7 +10,7 @@ A **fast incremental session picker with optional local archiving** for [Pi Codi
 - Streams previews in 24-file asynchronous batches rather than parsing entire session transcripts.
 - All scope scans the current project first, progressively discovers others and isolates broken directories.
 - Repeated opens show a warm in-memory snapshot immediately, revalidated in the background via mtime/size; no persistent cache.
-- Reads complete JSONL lines up to the first user message (with a 2 MiB safety cap), plus at most 32 KiB from EOF to find recent renamed session titles.
+- Reads complete JSONL lines up to the first user message (with a 2 MiB safety cap), then scans backward in bounded blocks for the newest `session_info` rename, even when later conversation content pushes it far from EOF.
 - Threaded view matches Pi's parent-child layout: linked forks/sessions appear beneath their parent when search is empty.
 - The active session is shown in a `CURRENT:` header and `[CURRENT]` on its row; the picker initially focuses that row when it becomes available.
 - Tab switches current project / all projects; typing filters by title, ID, cwd or path.
