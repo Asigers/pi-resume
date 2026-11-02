@@ -62,7 +62,48 @@ async function cachedPreview(path:string,signal:AbortSignal):Promise<SessionPrev
   return preview;
 }
 
-/** Reads complete UTF-8 JSONL lines until the first user message, then a bounded tail. */
+/** Find the newest session_info by scanning JSONL lines backwards in bounded blocks. */
+async function findLatestSessionName(
+  fh:Awaited<ReturnType<typeof open>>,size:number,signal?:AbortSignal
+):Promise<{found:boolean;name?:string}>{
+  let offset=size;
+  let carry=Buffer.alloc(0);
+  while(offset>0&&!signal?.aborted){
+    const length=Math.min(READ_BLOCK,offset);
+    const start=offset-length;
+    const chunk=Buffer.allocUnsafe(length);
+    const {bytesRead}=await fh.read(chunk,0,length,start);
+    if(!bytesRead)break;
+    offset=start;
+    const data=Buffer.concat([chunk.subarray(0,bytesRead),carry]);
+    const lines=data.toString("utf8").split("\\n");
+    carry=Buffer.from(lines.shift()??"");
+    for(let i=lines.length-1;i>=0;i--){
+      const line=lines[i]!;
+      if(!line.includes('"session_info"'))continue;
+      try{
+        const entry=JSON.parse(line) as {type?:string;name?:unknown};
+        if(entry.type==="session_info"){
+          return {found:true,name:typeof entry.name==="string"?entry.name.trim()||undefined:undefined};
+        }
+      }catch{/* Ignore incomplete or malformed JSONL lines. */}
+    }
+  }
+  if(!signal?.aborted&&carry.length){
+    const line=carry.toString("utf8");
+    if(line.includes('"session_info"')){
+      try{
+        const entry=JSON.parse(line) as {type?:string;name?:unknown};
+        if(entry.type==="session_info"){
+          return {found:true,name:typeof entry.name==="string"?entry.name.trim()||undefined:undefined};
+        }
+      }catch{/* Ignore malformed JSONL. */}
+    }
+  }
+  return {found:false};
+}
+
+/** Reads complete UTF-8 JSONL lines until the first user message, then the latest session name. */
 export async function readPreview(path:string,modifiedMs:number,size:number,signal?:AbortSignal):Promise<SessionPreview|null>{
   if(signal?.aborted||size<=0)return null;
   const fh=await open(path,"r");
@@ -85,10 +126,10 @@ export async function readPreview(path:string,modifiedMs:number,size:number,sign
     }
     if(!found&&pending.length&&offset>=size)acceptHeaderLine(header,pending.toString("utf8"));
     if(!header.id||signal?.aborted)return null;
-    const tailSize=Math.min(TAIL_BYTES,size),tailStart=size-tailSize;
-    const tail=Buffer.allocUnsafe(tailSize);
-    const {bytesRead}=await fh.read(tail,0,tailSize,tailStart);
-    const latest=tailName(tail.subarray(0,bytesRead),tailStart===0);
+    // Session names are appended as session_info entries. Search backwards
+    // until the newest one is found; a fixed tail window can miss it after
+    // long conversations.
+    const latest=await findLatestSessionName(fh,size,signal);
     if(latest.found)header.name=latest.name;
     return {path,id:header.id,title:previewTitle(header),cwd:header.cwd,
       parentSession:header.parentSession,modifiedMs,size};
