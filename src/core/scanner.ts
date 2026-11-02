@@ -75,7 +75,7 @@ async function findLatestSessionName(
     if(!bytesRead)break;
     offset=start;
     const data=Buffer.concat([chunk.subarray(0,bytesRead),carry]);
-    const lines=data.toString("utf8").split("\\n");
+    const lines=data.toString("utf8").split("\n");
     carry=Buffer.from(lines.shift()??"");
     for(let i=lines.length-1;i>=0;i--){
       const line=lines[i]!;
