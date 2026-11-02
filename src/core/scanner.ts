@@ -1,6 +1,6 @@
 import {open,opendir,stat} from "node:fs/promises";
 import {join,posix,win32} from "node:path";
-import {acceptHeaderLine,previewTitle,tailName,type HeaderInfo} from "./parse.ts";
+import {acceptHeaderLine,previewTitle,type HeaderInfo} from "./parse.ts";
 
 export interface SessionPreview {
   path:string; id:string; title:string; cwd:string; modifiedMs:number; size:number; parentSession?:string;
@@ -18,7 +18,6 @@ export interface ScanOptions {
 }
 const READ_BLOCK=16384;
 const MAX_HEAD_BYTES=2*1024*1024;
-const TAIL_BYTES=32768;
 const BATCH=24;
 const CACHE_LIMIT=8000;
 const SNAPSHOT_LIMIT=16;
