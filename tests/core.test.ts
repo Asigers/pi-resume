@@ -43,6 +43,42 @@ test("reader: handles long first message and later rename",async()=>{
     assert.equal(p?.id,"a");
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+test("reader: rename remains visible after more than 32 KB of later conversation",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pi-resume-"));
+  try{
+    const path=join(dir,"renamed.jsonl");
+    const later=JSON.stringify({type:"message",message:{role:"assistant",content:"x".repeat(40000)}})+"\\n";
+    await writeFile(path,fixture("renamed",dir,"hello","Latest name")+later);
+    const s=await stat(path),p=await readPreview(path,s.mtimeMs,s.size);
+    assert.equal(p?.title,"Latest name");
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+test("reader: latest rename wins and an explicit empty name clears it",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pi-resume-"));
+  try{
+    const path=join(dir,"rename-clear.jsonl");
+    const lines=[
+      fixture("rename-clear",dir,"fallback","Old name").trimEnd(),
+      JSON.stringify({type:"session_info",name:"Newest name"}),
+      JSON.stringify({type:"session_info",name:""})
+    ];
+    await writeFile(path,lines.join("\\n")+"\\n");
+    const s=await stat(path),p=await readPreview(path,s.mtimeMs,s.size);
+    assert.equal(p?.title,"fallback");
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+test("reader: session_info split across backward read blocks is parsed",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pi-resume-"));
+  try{
+    const path=join(dir,"boundary.jsonl");
+    const prefix=fixture("boundary",dir,"fallback");
+    const padding="x".repeat(16370);
+    const rename=JSON.stringify({type:"session_info",name:"Boundary name"});
+    await writeFile(path,prefix+padding+rename+"\\n");
+    const s=await stat(path),p=await readPreview(path,s.mtimeMs,s.size);
+    assert.equal(p?.title,"Boundary name");
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
 test("reader: large files do not require transcript parsing",async()=>{
   const dir=await mkdtemp(join(tmpdir(),"pi-resume-"));
   try{
