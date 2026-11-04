@@ -1,5 +1,5 @@
 import type {SessionPreview} from "./scanner.ts";
-import {buildSessionTree,type SessionRow} from "./tree.ts";
+import {buildSessionTree,isActiveSession,type SessionRow} from "./tree.ts";
 export function findSessions(sessions:SessionPreview[],query:string):SessionPreview[]{
   const terms=query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   return sessions.filter(s=>{
@@ -7,6 +7,12 @@ export function findSessions(sessions:SessionPreview[],query:string):SessionPrev
     const text=`${s.title} ${s.cwd} ${s.id} ${s.path}`.toLocaleLowerCase();
     return terms.every(term=>text.includes(term));
   }).sort((a,b)=>b.modifiedMs-a.modifiedMs||a.path.localeCompare(b.path));
+}
+/** Select from flat, recency-sorted search results; active session wins when present. */
+export function chooseDefaultSession(
+  sessions:SessionPreview[],currentPath?:string,currentId?:string
+):SessionPreview|undefined{
+  return sessions.find(s=>isActiveSession(s,currentPath,currentId))??sessions[0];
 }
 /** Memoizes search + sort for the current data generation and query. */
 export class SessionSearchCache {
