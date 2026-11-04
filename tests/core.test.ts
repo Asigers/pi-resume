@@ -5,12 +5,13 @@ import {tmpdir} from "node:os";
 import {test} from "node:test";
 import {acceptHeaderLine,previewTitle,tailName} from "../src/core/parse.ts";
 import {clearScanCaches,filterByProject,getWarmSnapshot,listSessionPaths,readPreview,sameProjectPath,scanSessions} from "../src/core/scanner.ts";
-import {findSessions,SessionSearchCache} from "../src/core/search.ts";
+import {chooseDefaultSession,findSessions,SessionSearchCache} from "../src/core/search.ts";
 import {buildSessionTree,isActiveSession,treePrefix} from "../src/core/tree.ts";
 import {ArchiveStore,archivePathKey,filterArchiveSessions} from "../src/core/archive.ts";
 import {moveSessionToTrash} from "../src/core/trash.ts";
 import {setKittyProtocolActive} from "@earendil-works/pi-tui";
 import {isArchiveShortcut,isArchiveViewShortcut,isTrashShortcut} from "../src/ui/shortcuts.ts";
+
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -482,4 +483,43 @@ test("picker shortcuts: xterm modifyOtherKeys work as well",()=>{
     assert.equal(isArchiveShortcut("\x1b[27;5;97~"),true);
     assert.equal(isArchiveViewShortcut("\x1b[27;5;114~"),true);
   }finally{setKittyProtocolActive(false);}
+});
+
+
+test("default session: tracks the newest session as incremental scan results arrive, independent of tree order",()=>{
+  const cache=new SessionSearchCache();
+  const parent={id:"parent",path:"/work/parent.jsonl",title:"Parent",cwd:"/work",modifiedMs:100,size:1};
+  const other={id:"other",path:"/work/other.jsonl",title:"Other",cwd:"/work",modifiedMs:300,size:1};
+  const newestChild={id:"child",path:"/work/child.jsonl",title:"Newest child",cwd:"/work",
+    modifiedMs:500,size:1,parentSession:parent.path};
+
+  cache.setSessions([parent,other]);
+  assert.equal(chooseDefaultSession(cache.search(""))?.path,other.path);
+
+  cache.setSessions([parent,other,newestChild]);
+  const preferred=chooseDefaultSession(cache.search(""));
+  assert.equal(preferred?.path,newestChild.path);
+  assert.notEqual(cache.rows("")[0]?.session.path,preferred?.path,
+    "tree order must not hide a newer child nested below its parent");
+});
+
+test("default session: current active session keeps priority over a more recently modified session",()=>{
+  const cache=new SessionSearchCache();
+  const newest={id:"newest",path:"/work/newest.jsonl",title:"Newest",cwd:"/work",modifiedMs:500,size:1};
+  const active={id:"active-session",path:"/work/active.jsonl",title:"Active",cwd:"/work",modifiedMs:100,size:1};
+
+  cache.setSessions([newest]);
+  assert.equal(chooseDefaultSession(cache.search(""),undefined,"active-session")?.path,newest.path);
+
+  cache.setSessions([newest,active]);
+  assert.equal(chooseDefaultSession(cache.search(""),undefined,"active-session")?.path,active.path);
+});
+
+test("default session: search results choose the newest matching session without active-session override",()=>{
+  const cache=new SessionSearchCache();
+  const older={id:"older",path:"/work/older.jsonl",title:"release notes",cwd:"/work",modifiedMs:100,size:1};
+  const newer={id:"newer",path:"/work/newer.jsonl",title:"release planning",cwd:"/work",modifiedMs:200,size:1};
+  const active={id:"active-session",path:"/work/active.jsonl",title:"release draft",cwd:"/work",modifiedMs:50,size:1};
+  cache.setSessions([older,newer,active]);
+  assert.equal(chooseDefaultSession(cache.search("release"))?.path,newer.path);
 });

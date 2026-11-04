@@ -2,7 +2,7 @@ import type {Theme} from "@earendil-works/pi-coding-agent";
 import {getKeybindings,Input,truncateToWidth,visibleWidth,type Component} from "@earendil-works/pi-tui";
 import type {SessionPreview,ScanProgress} from "../core/scanner.ts";
 import {archivePathKey,filterArchiveSessions} from "../core/archive.ts";
-import {SessionSearchCache} from "../core/search.ts";
+import {SessionSearchCache,chooseDefaultSession} from "../core/search.ts";
 import {isActiveSession,treePrefix,type SessionRow} from "../core/tree.ts";
 import {isArchiveShortcut,isArchiveViewShortcut,isTrashShortcut} from "./shortcuts.ts";
 
@@ -157,9 +157,27 @@ export class ResumePicker implements Component {
   private results():SessionRow[]{return this.search[this.scope].rows(this.input.getValue());}
   private reconcile():void{
     const results=this.results();
-    if(!this.selectionTouched&&!this.input.getValue().trim()){
-      const active=results.findIndex(r=>isActiveSession(r.session,this.options.currentSession,this.options.currentSessionId));
-      if(active>=0){this.selected=active;this.selectedPath=results[active]!.session.path;return;}
+    if(!this.selectionTouched){
+      const query=this.input.getValue();
+      // Search results are flat and sorted by modifiedMs. Do not use the first
+      // tree row: a newer fork/child can appear below an older parent.
+      const candidates=this.search[this.scope].search(query);
+      const preferred=chooseDefaultSession(
+        candidates,
+        query.trim()?undefined:this.options.currentSession,
+        query.trim()?undefined:this.options.currentSessionId
+      );
+      if(preferred){
+        const index=results.findIndex(r=>r.session.path===preferred.path);
+        if(index>=0){
+          this.selected=index;
+          this.selectedPath=preferred.path;
+          return;
+        }
+      }
+      this.selected=0;
+      this.selectedPath=undefined;
+      return;
     }
     if(this.selectedPath){
       const index=results.findIndex(r=>r.session.path===this.selectedPath);
