@@ -157,9 +157,25 @@ export class ResumePicker implements Component {
   private results():SessionRow[]{return this.search[this.scope].rows(this.input.getValue());}
   private reconcile():void{
     const results=this.results();
-    if(!this.selectionTouched&&!this.input.getValue().trim()){
-      const active=results.findIndex(r=>isActiveSession(r.session,this.options.currentSession,this.options.currentSessionId));
-      if(active>=0){this.selected=active;this.selectedPath=results[active]!.session.path;return;}
+    if(!this.selectionTouched){
+      const query=this.input.getValue();
+      // Search results are flat and sorted by modifiedMs. Do not use the first
+      // tree row: a newer fork/child can appear below an older parent.
+      const candidates=this.search[this.scope].search(query);
+      const preferred=!query.trim()
+        ?candidates.find(s=>isActiveSession(s,this.options.currentSession,this.options.currentSessionId))??candidates[0]
+        :candidates[0];
+      if(preferred){
+        const index=results.findIndex(r=>r.session.path===preferred.path);
+        if(index>=0){
+          this.selected=index;
+          this.selectedPath=preferred.path;
+          return;
+        }
+      }
+      this.selected=0;
+      this.selectedPath=undefined;
+      return;
     }
     if(this.selectedPath){
       const index=results.findIndex(r=>r.session.path===this.selectedPath);
