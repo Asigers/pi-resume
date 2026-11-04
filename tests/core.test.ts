@@ -11,6 +11,7 @@ import {ArchiveStore,archivePathKey,filterArchiveSessions} from "../src/core/arc
 import {moveSessionToTrash} from "../src/core/trash.ts";
 import {setKittyProtocolActive} from "@earendil-works/pi-tui";
 import {isArchiveShortcut,isArchiveViewShortcut,isTrashShortcut} from "../src/ui/shortcuts.ts";
+import {ResumePicker} from "../src/ui/picker.ts";
 function fixture(id:string,cwd:string,text:string,name?:string){
   const lines=[
     JSON.stringify({type:"session",id,cwd,timestamp:"2026-10-23T00:00:00Z"}),
@@ -482,4 +483,73 @@ test("picker shortcuts: xterm modifyOtherKeys work as well",()=>{
     assert.equal(isArchiveShortcut("\x1b[27;5;97~"),true);
     assert.equal(isArchiveViewShortcut("\x1b[27;5;114~"),true);
   }finally{setKittyProtocolActive(false);}
+});
+
+
+function createTestPicker(currentSession?:string,currentSessionId?:string):ResumePicker{
+  return new ResumePicker({} as never,{
+    currentSession,currentSessionId,
+    requestRender:()=>{},
+    onScope:()=>{},
+    done:()=>{},
+    isArchived:()=>false,
+    onArchive:async()=>{},
+    onDelete:async()=>({})
+  });
+}
+
+test("picker: default selection tracks the newest session across incremental batches and tree order",()=>{
+  const picker=createTestPicker();
+  const state=picker as unknown as {selectedPath?:string;selected:number};
+  const parent={id:"parent",path:"/work/parent.jsonl",title:"Parent",cwd:"/work",modifiedMs:100,size:1};
+  const other={id:"other",path:"/work/other.jsonl",title:"Other",cwd:"/work",modifiedMs:300,size:1};
+  const newestChild={id:"child",path:"/work/child.jsonl",title:"Newest child",cwd:"/work",
+    modifiedMs:500,size:1,parentSession:parent.path};
+
+  picker.update("current",[parent,other],{
+    loaded:2,total:30,failed:0,complete:false,discovering:true
+  });
+  assert.equal(state.selectedPath,other.path);
+
+  picker.update("current",[newestChild],{
+    loaded:25,total:30,failed:0,complete:false,discovering:true
+  });
+  assert.equal(state.selectedPath,newestChild.path);
+  assert.equal(state.selected,2,"the newest child is nested below its older parent in the visible tree");
+});
+
+test("picker: current active session keeps priority when it arrives in a later batch",()=>{
+  const picker=createTestPicker(undefined,"active-session");
+  const state=picker as unknown as {selectedPath?:string};
+  const newest={id:"newest",path:"/work/newest.jsonl",title:"Newest",cwd:"/work",modifiedMs:500,size:1};
+  const active={id:"active-session",path:"/work/active.jsonl",title:"Active",cwd:"/work",modifiedMs:100,size:1};
+
+  picker.update("current",[newest],{
+    loaded:1,total:30,failed:0,complete:false,discovering:true
+  });
+  assert.equal(state.selectedPath,newest.path);
+
+  picker.update("current",[active],{
+    loaded:25,total:30,failed:0,complete:false,discovering:true
+  });
+  assert.equal(state.selectedPath,active.path);
+});
+
+test("picker: background batches do not override a manually touched selection",()=>{
+  const picker=createTestPicker();
+  const state=picker as unknown as {selectedPath?:string;selected:number;selectionTouched:boolean};
+  const older={id:"older",path:"/work/older.jsonl",title:"Older",cwd:"/work",modifiedMs:100,size:1};
+  const newer={id:"newer",path:"/work/newer.jsonl",title:"Newer",cwd:"/work",modifiedMs:200,size:1};
+  const newest={id:"newest",path:"/work/newest.jsonl",title:"Newest",cwd:"/work",modifiedMs:300,size:1};
+
+  picker.update("current",[older,newer],{
+    loaded:2,total:30,failed:0,complete:false,discovering:true
+  });
+  state.selectionTouched=true;
+  state.selectedPath=older.path;
+
+  picker.update("current",[newest],{
+    loaded:25,total:30,failed:0,complete:false,discovering:true
+  });
+  assert.equal(state.selectedPath,older.path);
 });
